@@ -1,0 +1,16 @@
+plugins {
+    id 'java-library'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_7
+    targetCompatibility = JavaVersion.VERSION_1_7
+}
+
+dependencies {
+    implementation project(path: ':json-annotation')
+
+    def ver_auto_service = '1.0.1'
+    implementation "com.google.auto.service:auto-service-annotations:$ver_auto_service"
+    annotationProcessor "com.google.auto.service:auto-service:$ver_auto_service"
+}
