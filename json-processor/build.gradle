@@ -13,4 +13,6 @@ dependencies {
     def ver_auto_service = '1.0.1'
     implementation "com.google.auto.service:auto-service-annotations:$ver_auto_service"
     annotationProcessor "com.google.auto.service:auto-service:$ver_auto_service"
+
+    implementation 'com.squareup:javapoet:1.13.0'
 }
