@@ -20,7 +20,7 @@ import javax.tools.Diagnostic;
 import com.google.auto.service.AutoService;
 import com.utopia.json_annotation.Json;
 
-@SupportedSourceVersion(SourceVersion.RELEASE_7)
+@SupportedSourceVersion(SourceVersion.RELEASE_8)
 @AutoService(Processor.class)
 public class JsonProcessor extends AbstractProcessor {
 
@@ -45,12 +45,19 @@ public class JsonProcessor extends AbstractProcessor {
 
   @Override
   public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-    log("json process called");
-    return false;
+    if (roundEnv.processingOver()) {
+      return false;
+    }
+    note("json process called");
+    return true;
   }
 
-  private void log(String msg) {
-    mMessager.printMessage(Diagnostic.Kind.NOTE, msg);
+  private void note(String msg) {
+    mMessager.printMessage(Diagnostic.Kind.OTHER, msg);
+  }
+
+  private void warning(String msg) {
+    mMessager.printMessage(Diagnostic.Kind.WARNING, msg);
   }
 
   private void error(String msg) {
