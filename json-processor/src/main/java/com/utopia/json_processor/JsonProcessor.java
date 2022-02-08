@@ -41,6 +41,8 @@ import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.ParameterSpec;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
+import com.squareup.javapoet.TypeVariableName;
+import com.squareup.javapoet.WildcardTypeName;
 import com.utopia.json_annotation.Json;
 
 import jdk.internal.jline.internal.Nullable;
@@ -210,7 +212,7 @@ public class JsonProcessor extends AbstractProcessor {
     String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
     String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
 
-    note("processMap: " + fieldElement);
+    note("processMap: " + fieldElement + ",type: " + fieldElement.asType());
     ClassName clzImpl;
     if (mHelper.isAssignable(Constants.CLASS_HASH_MAP, fieldElement)) {
       clzImpl = Constants.CLASS_HASH_MAP;
@@ -229,11 +231,78 @@ public class JsonProcessor extends AbstractProcessor {
       warning("map的泛型数量不正确", fieldElement);
       return null;
     }
-    if (typeArguments.size() > 0) {
-      warning("不支持泛型map", fieldElement);
+    // TODO: 2022/2/9 放开
+    if (typeArguments.size() == 0) {
+      warning("不支持无泛型map", fieldElement);
       return null;
     }
 //    boolean hasGeneric = !typeArguments.isEmpty();
+    note(typeArguments.stream()
+        .map(Object::getClass)
+        .collect(Collectors.toList()));
+    note(typeArguments.stream()
+        .map(TypeName::get)
+        .map(Object::getClass)
+        .collect(Collectors.toList()));
+
+    TypeName typeName0 = TypeName.get(typeArguments.get(0));
+    boolean isStringIndex0 = TypeNames.STRING.equals(typeName0);
+    if (!isStringIndex0) {
+      warning("map泛型第一个参数不是String类型", fieldElement);
+      return null;
+    }
+    TypeName typeName1 = TypeName.get(typeArguments.get(1));
+    TypeName chooseSecondParamType;
+    // 2.1 普通类
+    if (typeName1 instanceof ClassName) {
+      note("is className");
+      chooseSecondParamType = typeName1;
+    }
+    // 2.2 泛型
+    else if (typeName1 instanceof TypeVariableName) {
+      note(" is typeVar");
+      List<TypeName> bounds = ((TypeVariableName) typeName1).bounds;
+//      note("bounds=" + bounds);
+      if (bounds.isEmpty()) {
+        warning("map泛型第二个参数必须指明泛型上界", fieldElement);
+        return null;
+      }
+      if (bounds.size() > 1) {
+        warning("map泛型第二个参数仅支持一个上界", fieldElement);
+        return null;
+      }
+      chooseSecondParamType = bounds.get(0);
+    }
+    // 2.3 通配符
+    else if (typeName1 instanceof WildcardTypeName) {
+      List<TypeName> lowerBounds = ((WildcardTypeName) typeName1).lowerBounds;
+      List<TypeName> upperBounds = ((WildcardTypeName) typeName1).upperBounds;
+      if (!lowerBounds.isEmpty()) {
+        warning("map泛型第二个参数不支持泛型下界", fieldElement);
+        return null;
+      }
+      if (upperBounds.isEmpty()) {
+        warning("map泛型第二个参数没有明确指定上界", fieldElement);
+        return null;
+      }
+      if (upperBounds.size() > 1) {
+        warning("map泛型第二个参数不支持多个上界", fieldElement);
+        return null;
+      }
+      chooseSecondParamType = upperBounds.get(0);
+//      note("lowerBounds=" + lowerBounds + ",upperBounds=" + upperBounds);
+    } else {
+      warning("map泛型第二个参数是不支持的类型:" + typeName1, fieldElement);
+      return null;
+    }
+    note("chooseSecondParamType: " + chooseSecondParamType);
+    String optType = mJsonOptMap.get(chooseSecondParamType);
+    if (optType == null) {
+      warning("map泛型的第二个参数是不支持的类型:" + chooseSecondParamType, fieldElement);
+      return null;
+    }
+    TypeName chooseSecondParamCastType = chooseSecondParamType.isBoxedPrimitive()
+        ? chooseSecondParamType.unbox() : chooseSecondParamType;
 
     CodeBlock codeBlock = CodeBlock.builder()
         .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
@@ -243,7 +312,8 @@ public class JsonProcessor extends AbstractProcessor {
         .addStatement("$T<String> keys = jsonObj.keys()", Iterator.class)
         .beginControlFlow("while (keys.hasNext())")
         .addStatement("String next = keys.next()")
-        .addStatement("Object value = jsonObj.opt(next)")
+        .addStatement("$T value = ($T)jsonObj.opt$L(next)",
+            chooseSecondParamType, chooseSecondParamCastType, optType)
         .addStatement("map.put(next,value)")
         .addStatement("$L.$L = map", localBean, fieldElement)
         .endControlFlow()
@@ -398,7 +468,8 @@ public class JsonProcessor extends AbstractProcessor {
 
   private Map<TypeName, String> getJsonOptMap() {
     Map<TypeName, String> map = new HashMap<>();
-    map.put(TypeName.get(String.class), "String");
+    map.put(TypeNames.OBJECT, "");
+    map.put(TypeNames.STRING, "String");
     map.put(TypeName.BOOLEAN, "Boolean");
     map.put(TypeName.CHAR, "Int");
     map.put(TypeName.BYTE, "Int");

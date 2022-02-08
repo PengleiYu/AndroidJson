@@ -13,7 +13,14 @@ import org.json.JSONObject;
 import com.utopia.json_annotation.Json;
 
 @Json
-public class Bean extends BaseBean {
+public class Bean<
+    // 支持的单一上界
+    T extends Integer,
+    // 不支持的单一上界
+    A extends Number,
+    // 不支持的多上界
+    B extends Integer & Iterable<Float>
+    > extends BaseBean {
   public String fString;
   public boolean fBoolean;
   public Boolean fBoolean2;
@@ -59,7 +66,16 @@ public class Bean extends BaseBean {
   public Map fMap;
 
   // 通配符泛型map
-  public Map<String, ? extends Number> fMapStrInt;
+  public Map<String, ?> fMapString;
+  // 泛型上界map
+  public Map<String, ? extends Number> fMapStrExtendsNumber;
+  public Map<String, ? extends Float> fMapStrExtendsFloat;
+  // 泛型下界map
+  public Map<String, ? super Integer> fMapStrSuperInt;
+  // 泛型多个上界
+  public Map<String, T> fMapStrT;
+  public Map<String, A> fMapStrA;
+  public Map<String, B> fMapStrB;
 
   public Bean(String fString) {
     this.fString = fString;
