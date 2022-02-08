@@ -24,7 +24,6 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
@@ -48,7 +47,7 @@ public class JsonProcessor extends AbstractProcessor {
   private Types mTypeUtils;
   private Elements mElementUtils;
   private Filer mFiler;
-  
+
   private Map<TypeName, String> mJsonOptMap;
 
   @Override
@@ -97,7 +96,6 @@ public class JsonProcessor extends AbstractProcessor {
 
     // 1，创建类空间
     ClassName targetClz = getTargetJsonClzName(element);
-    note(targetClz);
     TypeSpec.Builder builder = TypeSpec.classBuilder(targetClz)
         .addModifiers(Modifier.PUBLIC);
     // 3，添加实现方法
@@ -107,7 +105,9 @@ public class JsonProcessor extends AbstractProcessor {
     // 4，生成文件
     TypeSpec typeSpec = builder.build();
     try {
-      JavaFile.builder(mElementUtils.getPackageOf(element).toString(), typeSpec)
+      String packageName = mElementUtils.getPackageOf(element).toString();
+      JavaFile.builder(packageName, typeSpec)
+          .skipJavaLangImports(true)
           .build()
           .writeTo(mFiler);
     } catch (IOException e) {
@@ -138,21 +138,24 @@ public class JsonProcessor extends AbstractProcessor {
   }
 
   private MethodSpec getImplMethod(ClassName returnType, List<? extends VariableElement> variables) {
-    // TODO: 2022/2/7 待抽取常量json、bean
-    ParameterSpec parameterSpec = ParameterSpec.builder(Constants.CLZ_JSON_OBJECT, "json")
+    String methodName = Constants.METHOD_NAME_FROM_JSON;
+    String varBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+
+    ParameterSpec parameterSpec = ParameterSpec.builder(Constants.CLZ_JSON_OBJECT, paramJson)
         .build();
     CodeBlock blockInitField = getInitFieldBlock(variables);
 
     CodeBlock codeBlock = CodeBlock.builder()
-        .addStatement("$T bean = new $T()", returnType, returnType)
-        .beginControlFlow("if (json == null)")
-        .addStatement("return bean")
+        .addStatement("$T $L = new $T()", returnType, varBean, returnType)
+        .beginControlFlow("if ($L == null)", paramJson)
+        .addStatement("return $L", varBean)
         .endControlFlow()
         .add(blockInitField)
-        .addStatement("return bean")
+        .addStatement("return $L", varBean)
         .build();
 
-    return MethodSpec.methodBuilder("fromJson")
+    return MethodSpec.methodBuilder(methodName)
         .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
         .addParameter(parameterSpec)
         .returns(returnType)
@@ -163,18 +166,21 @@ public class JsonProcessor extends AbstractProcessor {
   private CodeBlock getInitFieldBlock(List<? extends VariableElement> variables) {
     CodeBlock.Builder builder = CodeBlock.builder();
 
-    for (VariableElement var : variables) {
+    String methodName = Constants.METHOD_NAME_FROM_JSON;
+    String varBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    for (VariableElement varElement : variables) {
       // TODO: 2022/2/8 考虑支持gson的别名注解
-      String varName = var.getSimpleName().toString();
-      TypeName typeName = ClassName.get(var.asType());
-      // 1， 基本类型、包装类型、String
+      String fieldName = varElement.getSimpleName().toString();
+      TypeName typeName = TypeName.get(varElement.asType());
+      // 1， 基本类型、包装类型、String、JSONObject、JSONArray
       if (mJsonOptMap.containsKey(typeName)) {
         String jsonOptType = Objects.requireNonNull(mJsonOptMap.get(typeName));
         TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
 
-        builder.beginControlFlow("if($L.has($S))", "json", varName)
+        builder.beginControlFlow("if($L.has($S))", paramJson, fieldName)
             .addStatement("$L.$L = ($L)$L.opt$L($S)",
-                "bean", varName, castType, "json", jsonOptType, varName)
+                varBean, fieldName, castType, paramJson, jsonOptType, fieldName)
             .endControlFlow();
       }
     }
@@ -182,25 +188,28 @@ public class JsonProcessor extends AbstractProcessor {
   }
 
   private Map<TypeName, String> getJsonOptMap() {
-    Map<TypeName, String> jsonOptTypeMap = new HashMap<>();
-    jsonOptTypeMap.put(TypeName.get(String.class), "String");
-    jsonOptTypeMap.put(TypeName.BOOLEAN, "Boolean");
-    jsonOptTypeMap.put(TypeName.CHAR, "Int");
-    jsonOptTypeMap.put(TypeName.BYTE, "Int");
-    jsonOptTypeMap.put(TypeName.SHORT, "Int");
-    jsonOptTypeMap.put(TypeName.INT, "Int");
-    jsonOptTypeMap.put(TypeName.LONG, "Long");
-    jsonOptTypeMap.put(TypeName.FLOAT, "Double");
-    jsonOptTypeMap.put(TypeName.DOUBLE, "Double");
-    jsonOptTypeMap.put(TypeName.BOOLEAN.box(), "Boolean");
-    jsonOptTypeMap.put(TypeName.CHAR.box(), "Int");
-    jsonOptTypeMap.put(TypeName.BYTE.box(), "Int");
-    jsonOptTypeMap.put(TypeName.SHORT.box(), "Int");
-    jsonOptTypeMap.put(TypeName.INT.box(), "Int");
-    jsonOptTypeMap.put(TypeName.LONG.box(), "Long");
-    jsonOptTypeMap.put(TypeName.FLOAT.box(), "Double");
-    jsonOptTypeMap.put(TypeName.DOUBLE.box(), "Double");
-    return jsonOptTypeMap;
+    Map<TypeName, String> map = new HashMap<>();
+    map.put(TypeName.get(String.class), "String");
+    map.put(TypeName.BOOLEAN, "Boolean");
+    map.put(TypeName.CHAR, "Int");
+    map.put(TypeName.BYTE, "Int");
+    map.put(TypeName.SHORT, "Int");
+    map.put(TypeName.INT, "Int");
+    map.put(TypeName.LONG, "Long");
+    map.put(TypeName.FLOAT, "Double");
+    map.put(TypeName.DOUBLE, "Double");
+    map.put(TypeName.BOOLEAN.box(), "Boolean");
+    map.put(TypeName.CHAR.box(), "Int");
+    map.put(TypeName.BYTE.box(), "Int");
+    map.put(TypeName.SHORT.box(), "Int");
+    map.put(TypeName.INT.box(), "Int");
+    map.put(TypeName.LONG.box(), "Long");
+    map.put(TypeName.FLOAT.box(), "Double");
+    map.put(TypeName.DOUBLE.box(), "Double");
+
+    map.put(Constants.CLZ_JSON_ARRAY, "JSONArray");
+    map.put(Constants.CLZ_JSON_OBJECT, "JSONObject");
+    return map;
   }
 
   private ClassName getTargetJsonClzName(TypeElement element) {
