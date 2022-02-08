@@ -3,6 +3,7 @@ package com.utopia.json_processor;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -193,11 +194,63 @@ public class JsonProcessor extends AbstractProcessor {
     // 3，集合类型
     else if (mHelper.isAssignable(fieldElement, Constants.CLASS_COLLECTION)) {
       return processCollectionField(fieldElement);
+    }
+    // 4，map类型
+    else if (mHelper.isAssignable(fieldElement, Constants.CLASS_MAP)) {
+      return processMapField(fieldElement);
     } else {
       warning("不支持的字段类型:" + typeName, fieldElement);
       warning(typeName.getClass().toString());
       return null;
     }
+  }
+
+  @Nullable
+  private CodeBlock processMapField(VariableElement fieldElement) {
+    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+
+    note("processMap: " + fieldElement);
+    ClassName clzImpl;
+    if (mHelper.isAssignable(Constants.CLASS_HASH_MAP, fieldElement)) {
+      clzImpl = Constants.CLASS_HASH_MAP;
+    } else {
+      warning("不支持的map类型", fieldElement);
+      return null;
+    }
+
+    if (!(fieldElement.asType() instanceof DeclaredType)) {
+      warning("map类型不是declaredType", fieldElement);
+      return null;
+    }
+
+    List<? extends TypeMirror> typeArguments = ((DeclaredType) fieldElement.asType()).getTypeArguments();
+    if (typeArguments.size() > 0 && typeArguments.size() != 2) {
+      warning("map的泛型数量不正确", fieldElement);
+      return null;
+    }
+    if (typeArguments.size() > 0) {
+      warning("不支持泛型map", fieldElement);
+      return null;
+    }
+//    boolean hasGeneric = !typeArguments.isEmpty();
+
+    CodeBlock codeBlock = CodeBlock.builder()
+        .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
+        .addStatement("$T map=new $T()", Map.class, clzImpl)
+        .addStatement("$T jsonObj=$L.$L($S)",
+            Constants.CLZ_JSON_OBJECT, paramJson, Constants.FUNCTION_OPT_JSON_OBJECT, fieldElement)
+        .addStatement("$T<String> keys = jsonObj.keys()", Iterator.class)
+        .beginControlFlow("while (keys.hasNext())")
+        .addStatement("String next = keys.next()")
+        .addStatement("Object value = jsonObj.opt(next)")
+        .addStatement("map.put(next,value)")
+        .addStatement("$L.$L = map", localBean, fieldElement)
+        .endControlFlow()
+        .endControlFlow()
+        .build();
+
+    return codeBlock;
   }
 
   @Nullable
@@ -262,7 +315,6 @@ public class JsonProcessor extends AbstractProcessor {
 
   @Nullable
   private CodeBlock processCollectionField(VariableElement fieldElement) {
-    note("集合类型：" + fieldElement.asType());
     ClassName clzImpl;
     if (mHelper.isAssignable(Constants.CLASS_HASH_SET, fieldElement)) {
       clzImpl = Constants.CLASS_HASH_SET;
@@ -288,7 +340,7 @@ public class JsonProcessor extends AbstractProcessor {
 
     boolean hasGeneric = typeArguments.size() == 1;
     boolean supportedGeneric = true;
-    if (typeArguments.size() > 0) {
+    if (!typeArguments.isEmpty()) {
       TypeName componentType = TypeName.get(typeArguments.get(0));
       supportedGeneric = mJsonOptMap.containsKey(componentType);
     }

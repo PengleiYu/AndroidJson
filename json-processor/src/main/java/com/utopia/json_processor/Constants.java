@@ -19,6 +19,9 @@ public class Constants {
   public static final ClassName CLASS_HASH_SET = ClassName.get("java.util", "HashSet");
   public static final ClassName CLASS_QUEUE = ClassName.get("java.util", "Queue");
   public static final ClassName CLASS_LINKED_LIST = ClassName.get("java.util", "LinkedList");
+  public static final ClassName CLASS_MAP = ClassName.get("java.util", "Map");
+  public static final ClassName CLASS_HASH_MAP = ClassName.get("java.util", "HashMap");
 
   public static final String FUNCTION_OPT_JSON_ARRAY = "optJSONArray";
+  public static final String FUNCTION_OPT_JSON_OBJECT = "optJSONObject";
 }

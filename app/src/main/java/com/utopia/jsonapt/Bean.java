@@ -2,6 +2,7 @@ package com.utopia.jsonapt;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
@@ -53,6 +54,12 @@ public class Bean extends BaseBean {
 
   // 不支持非常用集合
   public TreeSet<String> fTreeSetStr;
+
+  // 无泛型map
+  public Map fMap;
+
+  // 通配符泛型map
+  public Map<String, ? extends Number> fMapStrInt;
 
   public Bean(String fString) {
     this.fString = fString;
