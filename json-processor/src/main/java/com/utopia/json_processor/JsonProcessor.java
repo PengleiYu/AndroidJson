@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
@@ -408,60 +407,37 @@ public class JsonProcessor extends AbstractProcessor {
       return null;
     }
 
-    boolean hasGeneric = typeArguments.size() == 1;
-    boolean supportedGeneric = true;
     if (!typeArguments.isEmpty()) {
       TypeName componentType = TypeName.get(typeArguments.get(0));
-      supportedGeneric = mJsonOptMap.containsKey(componentType);
+      if (!mJsonOptMap.containsKey(componentType)) {
+        warning("不支持的集合泛型", fieldElement);
+        return null;
+      }
     }
 
-    if (!supportedGeneric) {
-      warning("不支持的集合泛型", fieldElement);
-      return null;
+    TypeName componentType = typeArguments.isEmpty()
+        ? TypeNames.OBJECT : TypeName.get(typeArguments.get(0));
+    String jsonOptType = mJsonOptMap.get(componentType);
+    // 简单类型
+    if (jsonOptType == null) {
+      error("WTF，不应为null", fieldElement);
     }
-    Supplier<CodeBlock> statementSupplier = () -> {
-      // 2.1 无泛型
-      if (!hasGeneric) {
-        return CodeBlock.builder()
-            .addStatement("collection.add(jsonArr.opt(i))")
-            .build();
-      }
-      // 2.2 泛型
-      else {
-        TypeName componentType = TypeName.get(typeArguments.get(0));
-        String jsonOptType = mJsonOptMap.get(componentType);
-        // 2.2.1 简单类型
-        if (jsonOptType == null) {
-          error("WTF，不应为null", fieldElement);
-        }
 
-        TypeName componentCastType = componentType.isBoxedPrimitive()
-            ? componentType.unbox() : componentType;
-        return CodeBlock.builder()
-            .addStatement("collection.add(($L)jsonArr.opt$L(i))", componentCastType, jsonOptType)
-            .build();
-      }
-    };
+    TypeName componentCastType = componentType.isBoxedPrimitive()
+        ? componentType.unbox() : componentType;
 
-    return getCollectionCodeBlock(fieldElement, clzImpl, statementSupplier);
-  }
-
-  private CodeBlock getCollectionCodeBlock(VariableElement fieldElement,
-                                           ClassName clzImpl,
-                                           Supplier<CodeBlock> statementCollectionAdd) {
-    String fieldName = fieldElement.getSimpleName().toString();
     String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
     String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
 
     CodeBlock.Builder builder = CodeBlock.builder()
-        .beginControlFlow("if($L.has($S))", paramJson, fieldName)
+        .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
         .addStatement("$T collection=new $T()", fieldElement, clzImpl)
         .addStatement("$T jsonArr=$L.$L($S)",
-            Constants.CLZ_JSON_ARRAY, paramJson, Constants.FUNCTION_OPT_JSON_ARRAY, fieldName)
+            Constants.CLZ_JSON_ARRAY, paramJson, Constants.FUNCTION_OPT_JSON_ARRAY, fieldElement)
         .beginControlFlow("for(int i=0;i<jsonArr.length();i++)")
-        .add(statementCollectionAdd.get())
+        .addStatement("collection.add(($L)jsonArr.opt$L(i))", componentCastType, jsonOptType)
         .endControlFlow()
-        .addStatement("$L.$L=collection", localBean, fieldName)
+        .addStatement("$L.$L=collection", localBean, fieldElement)
         .endControlFlow();
     return builder.build();
   }
