@@ -170,62 +170,93 @@ public class JsonProcessor extends AbstractProcessor {
   }
 
   private CodeBlock getInitFieldBlock(List<? extends VariableElement> fields) {
-    CodeBlock.Builder builder = CodeBlock.builder();
+    return fields.stream()
+        .map(this::dispatchFieldProcess)
+        .filter(Objects::nonNull)
+        .collect(CodeBlock::builder, CodeBlock.Builder::add, ((b1, b2) -> b1.add(b2.build())))
+        .build();
+  }
 
-    String methodName = Constants.METHOD_NAME_FROM_JSON;
+  private CodeBlock dispatchFieldProcess(VariableElement fieldElement) {
+    TypeMirror typeMirror = fieldElement.asType();
+    // TODO: 2022/2/8 考虑支持gson的别名注解
+    TypeName typeName = TypeName.get(typeMirror);
+    // 1，简单类型： 基本类型、包装类型、String、JSONObject、JSONArray
+    if (mJsonOptMap.containsKey(typeName)) {
+      return processSimpleField(fieldElement);
+    }
+    // 2, 数组类型
+    else if (typeName instanceof ArrayTypeName) {
+      return processArrayField(fieldElement);
+    }
+    // 3，集合类型
+    else if (mHelper.isAssignable(fieldElement, Constants.CLASS_COLLECTION)) {
+      return processCollectionField(fieldElement);
+    } else {
+      warning("不支持的字段类型:" + typeName, fieldElement);
+      warning(typeName.getClass().toString());
+      return null;
+    }
+  }
+
+  @Nullable
+  private CodeBlock processSimpleField(VariableElement fieldElement) {
     String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
     String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
-    for (VariableElement fieldElement : fields) {
-      // TODO: 2022/2/8 考虑支持gson的别名注解
-      TypeMirror typeMirror = fieldElement.asType();
-      TypeName typeName = TypeName.get(typeMirror);
-      // 1，简单类型： 基本类型、包装类型、String、JSONObject、JSONArray
-      if (mJsonOptMap.containsKey(typeName)) {
-        String fieldName = fieldElement.getSimpleName().toString();
-        String jsonOptType = Objects.requireNonNull(mJsonOptMap.get(typeName));
-        TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
 
-        builder.beginControlFlow("if($L.has($S))", paramJson, fieldName)
-            .addStatement("$L.$L = ($L)$L.opt$L($S)",
-                localBean, fieldName, castType, paramJson, jsonOptType, fieldName)
-            .endControlFlow();
-      }
-      // 2, 数组类型
-      else if (typeName instanceof ArrayTypeName) {
-        String fieldName = fieldElement.getSimpleName().toString();
-        ArrayTypeName arrName = (ArrayTypeName) typeName;
-        TypeName componentType = arrName.componentType;
-        // 2.1 简单类型
-        String jsonOptType = mJsonOptMap.get(componentType);
-        ClassName clzJsonArray = Constants.CLZ_JSON_ARRAY;
-        if (jsonOptType != null) {
-          TypeName componentCastType = componentType.isBoxedPrimitive()
-              ? componentType.unbox() : componentType;
-          String localJsonArr = "jsonArr";
-          builder.beginControlFlow("if($L.has($S))", paramJson, fieldName)
-              .addStatement("$T $L = $L.opt$L($S)",
-                  clzJsonArray, localJsonArr, paramJson, "JSONArray", fieldName)
-              .addStatement("$T arr = new $T[$L.length()]", arrName, componentType, localJsonArr)
-              .beginControlFlow("for(int i=0;i<$L.length();i++)", localJsonArr)
-              .addStatement("arr[i]=($T)$L.opt$L(i)", componentCastType, localJsonArr, jsonOptType)
-              .endControlFlow()
-              .addStatement("$L.$L=arr", localBean, fieldName)
-              .endControlFlow();
-        } else {
-          // TODO: 2022/2/8 更详细的提示信息
-          warning("不支持的数组类型: " + typeName, fieldElement);
-        }
-      }
-      // 3，集合类型
-      else if (mHelper.isAssignable(fieldElement, Constants.CLASS_COLLECTION)) {
-        CodeBlock codeBlock = processCollectionField(fieldElement);
-        if (codeBlock != null) builder.add(codeBlock);
-      } else {
-        warning("不支持的字段类型:" + typeName, fieldElement);
-        warning(typeName.getClass().toString());
-      }
+    TypeName typeName = TypeName.get(fieldElement.asType());
+
+    String fieldName = fieldElement.getSimpleName().toString();
+    String jsonOptType = mJsonOptMap.get(typeName);
+    if (jsonOptType == null) {
+      warning("不是简单类型", fieldElement);
+      return null;
     }
-    return builder.build();
+
+    TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
+
+    return CodeBlock.builder()
+        .beginControlFlow("if($L.has($S))", paramJson, fieldName)
+        .addStatement("$L.$L = ($L)$L.opt$L($S)",
+            localBean, fieldName, castType, paramJson, jsonOptType, fieldName)
+        .endControlFlow()
+        .build();
+  }
+
+  @Nullable
+  private CodeBlock processArrayField(VariableElement fieldElement) {
+    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    TypeName typeName = TypeName.get(fieldElement.asType());
+    if (!(typeName instanceof ArrayTypeName)) {
+      warning("不是数组类型", fieldElement);
+      return null;
+    }
+
+    String fieldName = fieldElement.getSimpleName().toString();
+    TypeName componentType = ((ArrayTypeName) typeName).componentType;
+    // 2.1 简单类型
+    String jsonOptType = mJsonOptMap.get(componentType);
+    ClassName clzJsonArray = Constants.CLZ_JSON_ARRAY;
+    if (jsonOptType != null) {
+      TypeName componentCastType = componentType.isBoxedPrimitive()
+          ? componentType.unbox() : componentType;
+      String localJsonArr = "jsonArr";
+      return CodeBlock.builder().beginControlFlow("if($L.has($S))", paramJson, fieldName)
+          .addStatement("$T $L = $L.opt$L($S)",
+              clzJsonArray, localJsonArr, paramJson, "JSONArray", fieldName)
+          .addStatement("$T arr = new $T[$L.length()]", typeName, componentType, localJsonArr)
+          .beginControlFlow("for(int i=0;i<$L.length();i++)", localJsonArr)
+          .addStatement("arr[i]=($T)$L.opt$L(i)", componentCastType, localJsonArr, jsonOptType)
+          .endControlFlow()
+          .addStatement("$L.$L=arr", localBean, fieldName)
+          .endControlFlow()
+          .build();
+    } else {
+      // TODO: 2022/2/8 更详细的提示信息
+      warning("不支持的数组类型: " + typeName, fieldElement);
+      return null;
+    }
   }
 
   @Nullable
