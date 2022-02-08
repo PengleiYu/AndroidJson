@@ -1,5 +1,7 @@
 package com.utopia.jsonapt;
 
+import java.util.List;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -19,6 +21,19 @@ public class Bean extends BaseBean {
 
   public JSONObject fJsonObj;
   public JSONArray fJsonArray;
+
+  public int[] fIntArr;
+  public Integer[] fIntArr2;
+
+  public float[] fFloatArr;
+  public Float[] fFloatArr2;
+
+  public JSONObject[] fJsonObjArr;
+  public JSONArray[] fJsonArrArr;
+
+  public Bean[] fBeanArr;
+
+  public List<String> fListStr;
 
   public Bean(String fString) {
     this.fString = fString;

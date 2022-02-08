@@ -24,11 +24,13 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
 
 import com.google.auto.service.AutoService;
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
 import com.squareup.javapoet.JavaFile;
@@ -163,25 +165,53 @@ public class JsonProcessor extends AbstractProcessor {
         .build();
   }
 
-  private CodeBlock getInitFieldBlock(List<? extends VariableElement> variables) {
+  private CodeBlock getInitFieldBlock(List<? extends VariableElement> fields) {
     CodeBlock.Builder builder = CodeBlock.builder();
 
     String methodName = Constants.METHOD_NAME_FROM_JSON;
-    String varBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
     String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
-    for (VariableElement varElement : variables) {
+    for (VariableElement fieldElement : fields) {
       // TODO: 2022/2/8 考虑支持gson的别名注解
-      String fieldName = varElement.getSimpleName().toString();
-      TypeName typeName = TypeName.get(varElement.asType());
-      // 1， 基本类型、包装类型、String、JSONObject、JSONArray
+      String fieldName = fieldElement.getSimpleName().toString();
+      TypeMirror typeMirror = fieldElement.asType();
+      TypeName typeName = TypeName.get(typeMirror);
+      // 1，简单类型： 基本类型、包装类型、String、JSONObject、JSONArray
       if (mJsonOptMap.containsKey(typeName)) {
         String jsonOptType = Objects.requireNonNull(mJsonOptMap.get(typeName));
         TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
 
         builder.beginControlFlow("if($L.has($S))", paramJson, fieldName)
             .addStatement("$L.$L = ($L)$L.opt$L($S)",
-                varBean, fieldName, castType, paramJson, jsonOptType, fieldName)
+                localBean, fieldName, castType, paramJson, jsonOptType, fieldName)
             .endControlFlow();
+      }
+      // 2, 数组类型
+      else if (typeName instanceof ArrayTypeName) {
+        ArrayTypeName arrName = (ArrayTypeName) typeName;
+        TypeName componentType = arrName.componentType;
+        // 2.1 简单类型
+        String jsonOptType = mJsonOptMap.get(componentType);
+        ClassName clzJsonArray = Constants.CLZ_JSON_ARRAY;
+        if (jsonOptType != null) {
+          TypeName componentCastType = componentType.isBoxedPrimitive()
+              ? componentType.unbox() : componentType;
+          String localJsonArr = "jsonArr";
+          builder.beginControlFlow("if($L.has($S))", paramJson, fieldName)
+              .addStatement("$T $L = $L.opt$L($S)",
+                  clzJsonArray, localJsonArr, paramJson, "JSONArray", fieldName)
+              .addStatement("$T arr = new $T[$L.length()]", arrName, componentType, localJsonArr)
+              .beginControlFlow("for(int i=0;i<$L.length();i++)", localJsonArr)
+              .addStatement("arr[i]=($T)$L.opt$L(i)", componentCastType, localJsonArr, jsonOptType)
+              .endControlFlow()
+              .addStatement("$L.$L=arr", localBean, fieldName)
+              .endControlFlow();
+        } else {
+          warning("不支持的数组类型: " + typeName, fieldElement);
+        }
+      } else {
+        warning("不支持的字段类型:" + typeName, fieldElement);
+        warning(typeName.getClass().toString());
       }
     }
     return builder.build();
