@@ -11,4 +11,14 @@ public class Constants {
   public static final String METHOD_NAME_FROM_JSON = "fromJson";
   public static final String METHOD_FROM_JSON_PARAM_KEY_JSON = "json";
   public static final String METHOD_FROM_JSON_LOCAL_VAR_BEAN = "bean";
+
+  public static final ClassName CLASS_COLLECTION = ClassName.get("java.util", "Collection");
+  public static final ClassName CLASS_LIST = ClassName.get("java.util", "List");
+  public static final ClassName CLASS_ARRAY_LIST = ClassName.get("java.util", "ArrayList");
+  public static final ClassName CLASS_SET = ClassName.get("java.util", "Set");
+  public static final ClassName CLASS_HASH_SET = ClassName.get("java.util", "HashSet");
+  public static final ClassName CLASS_QUEUE = ClassName.get("java.util", "Queue");
+  public static final ClassName CLASS_LINKED_LIST = ClassName.get("java.util", "LinkedList");
+
+  public static final String FUNCTION_OPT_JSON_ARRAY = "optJSONArray";
 }

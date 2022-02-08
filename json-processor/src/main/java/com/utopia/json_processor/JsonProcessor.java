@@ -24,6 +24,7 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -40,21 +41,24 @@ import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.utopia.json_annotation.Json;
 
+import jdk.internal.jline.internal.Nullable;
+
 @SupportedOptions("key1")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 @AutoService(Processor.class)
 public class JsonProcessor extends AbstractProcessor {
 
+  private Helper mHelper;
   private Messager mMessager;
   private Types mTypeUtils;
   private Elements mElementUtils;
   private Filer mFiler;
-
   private Map<TypeName, String> mJsonOptMap;
 
   @Override
   public synchronized void init(ProcessingEnvironment processingEnv) {
     super.init(processingEnv);
+    mHelper = new Helper(processingEnv);
     mMessager = processingEnv.getMessager();
     mTypeUtils = processingEnv.getTypeUtils();
     mElementUtils = processingEnv.getElementUtils();
@@ -173,11 +177,11 @@ public class JsonProcessor extends AbstractProcessor {
     String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
     for (VariableElement fieldElement : fields) {
       // TODO: 2022/2/8 考虑支持gson的别名注解
-      String fieldName = fieldElement.getSimpleName().toString();
       TypeMirror typeMirror = fieldElement.asType();
       TypeName typeName = TypeName.get(typeMirror);
       // 1，简单类型： 基本类型、包装类型、String、JSONObject、JSONArray
       if (mJsonOptMap.containsKey(typeName)) {
+        String fieldName = fieldElement.getSimpleName().toString();
         String jsonOptType = Objects.requireNonNull(mJsonOptMap.get(typeName));
         TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
 
@@ -188,6 +192,7 @@ public class JsonProcessor extends AbstractProcessor {
       }
       // 2, 数组类型
       else if (typeName instanceof ArrayTypeName) {
+        String fieldName = fieldElement.getSimpleName().toString();
         ArrayTypeName arrName = (ArrayTypeName) typeName;
         TypeName componentType = arrName.componentType;
         // 2.1 简单类型
@@ -207,13 +212,95 @@ public class JsonProcessor extends AbstractProcessor {
               .addStatement("$L.$L=arr", localBean, fieldName)
               .endControlFlow();
         } else {
+          // TODO: 2022/2/8 更详细的提示信息
           warning("不支持的数组类型: " + typeName, fieldElement);
         }
+      }
+      // 3，集合类型
+      else if (mHelper.isAssignable(fieldElement, Constants.CLASS_COLLECTION)) {
+        CodeBlock codeBlock = processCollectionField(fieldElement);
+        if (codeBlock != null) builder.add(codeBlock);
       } else {
         warning("不支持的字段类型:" + typeName, fieldElement);
         warning(typeName.getClass().toString());
       }
     }
+    return builder.build();
+  }
+
+  @Nullable
+  private CodeBlock processCollectionField(VariableElement fieldElement) {
+    note("集合类型：" + fieldElement.asType());
+    ClassName clzImpl;
+    if (mHelper.isAssignable(Constants.CLASS_HASH_SET, fieldElement)) {
+      clzImpl = Constants.CLASS_HASH_SET;
+    } else if (mHelper.isAssignable(Constants.CLASS_ARRAY_LIST, fieldElement)) {
+      clzImpl = Constants.CLASS_ARRAY_LIST;
+    } else if (mHelper.isAssignable(Constants.CLASS_LINKED_LIST, fieldElement)) {
+      clzImpl = Constants.CLASS_LINKED_LIST;
+    } else {
+      warning("不支持的集合类型", fieldElement);
+      return null;
+    }
+
+    TypeMirror typeMirror = fieldElement.asType();
+    if (!(typeMirror instanceof DeclaredType)) {
+      warning("集合类型element is not DeclaredType", fieldElement);
+      return null;
+    }
+    List<? extends TypeMirror> typeArguments = ((DeclaredType) typeMirror).getTypeArguments();
+    if (typeArguments.size() > 1) {
+      warning("泛型参数过多，无法处理", fieldElement);
+      return null;
+    }
+
+    boolean hasGeneric = typeArguments.size() == 1;
+    boolean supportedGeneric = true;
+    if (typeArguments.size() > 0) {
+      TypeName componentType = TypeName.get(typeArguments.get(0));
+      supportedGeneric = mJsonOptMap.containsKey(componentType);
+    }
+
+    if (!supportedGeneric) {
+      warning("不支持的集合泛型", fieldElement);
+      return null;
+    }
+
+    String fieldName = fieldElement.getSimpleName().toString();
+    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+
+    CodeBlock.Builder builder = CodeBlock.builder()
+        .beginControlFlow("if($L.has($S))", paramJson, fieldName)
+        .addStatement("$T collection=new $T()", fieldElement, clzImpl)
+        .addStatement("$T jsonArr=$L.$L($S)",
+            Constants.CLZ_JSON_ARRAY, paramJson, Constants.FUNCTION_OPT_JSON_ARRAY, fieldName)
+        .beginControlFlow("for(int i=0;i<jsonArr.length();i++)");
+
+    // 2.1 无泛型
+    if (!hasGeneric) {
+      builder.addStatement("collection.add(jsonArr.opt(i))");
+    }
+    // 2.2 泛型
+    else {
+      TypeName componentType = TypeName.get(typeArguments.get(0));
+      String jsonOptType = mJsonOptMap.get(componentType);
+      // 2.2.1 简单类型
+      if (jsonOptType == null) {
+        error("WTF，不应为null", fieldElement);
+      }
+
+      TypeName componentCastType = componentType.isBoxedPrimitive()
+          ? componentType.unbox() : componentType;
+      builder.addStatement("collection.add(($L)jsonArr.opt$L(i))",
+          componentCastType, jsonOptType);
+    }
+
+
+    builder
+        .endControlFlow()
+        .addStatement("$L.$L=collection", localBean, fieldName)
+        .endControlFlow();
     return builder.build();
   }
 
