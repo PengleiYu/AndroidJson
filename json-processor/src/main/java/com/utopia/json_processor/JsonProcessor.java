@@ -303,7 +303,7 @@ public class JsonProcessor extends AbstractProcessor {
     TypeName chooseSecondParamCastType = chooseSecondParamType.isBoxedPrimitive()
         ? chooseSecondParamType.unbox() : chooseSecondParamType;
 
-    CodeBlock codeBlock = CodeBlock.builder()
+    return CodeBlock.builder()
         .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
         .addStatement("$T map=new $T()", Map.class, clzImpl)
         .addStatement("$T jsonObj=$L.$L($S)",
@@ -318,8 +318,6 @@ public class JsonProcessor extends AbstractProcessor {
         .endControlFlow()
         .endControlFlow()
         .build();
-
-    return codeBlock;
   }
 
   @Nullable
@@ -329,7 +327,6 @@ public class JsonProcessor extends AbstractProcessor {
 
     TypeName typeName = TypeName.get(fieldElement.asType());
 
-    String fieldName = fieldElement.getSimpleName().toString();
     String jsonOptType = mJsonOptMap.get(typeName);
     if (jsonOptType == null) {
       warning("不是简单类型", fieldElement);
@@ -339,9 +336,9 @@ public class JsonProcessor extends AbstractProcessor {
     TypeName castType = typeName.isBoxedPrimitive() ? typeName.unbox() : typeName;
 
     return CodeBlock.builder()
-        .beginControlFlow("if($L.has($S))", paramJson, fieldName)
+        .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
         .addStatement("$L.$L = ($L)$L.opt$L($S)",
-            localBean, fieldName, castType, paramJson, jsonOptType, fieldName)
+            localBean, fieldElement, castType, paramJson, jsonOptType, fieldElement)
         .endControlFlow()
         .build();
   }
@@ -356,7 +353,6 @@ public class JsonProcessor extends AbstractProcessor {
       return null;
     }
 
-    String fieldName = fieldElement.getSimpleName().toString();
     TypeName componentType = ((ArrayTypeName) typeName).componentType;
     // 2.1 简单类型
     String jsonOptType = mJsonOptMap.get(componentType);
@@ -365,14 +361,15 @@ public class JsonProcessor extends AbstractProcessor {
       TypeName componentCastType = componentType.isBoxedPrimitive()
           ? componentType.unbox() : componentType;
       String localJsonArr = "jsonArr";
-      return CodeBlock.builder().beginControlFlow("if($L.has($S))", paramJson, fieldName)
+      return CodeBlock.builder()
+          .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
           .addStatement("$T $L = $L.opt$L($S)",
-              clzJsonArray, localJsonArr, paramJson, "JSONArray", fieldName)
+              clzJsonArray, localJsonArr, paramJson, "JSONArray", fieldElement)
           .addStatement("$T arr = new $T[$L.length()]", typeName, componentType, localJsonArr)
           .beginControlFlow("for(int i=0;i<$L.length();i++)", localJsonArr)
           .addStatement("arr[i]=($T)$L.opt$L(i)", componentCastType, localJsonArr, jsonOptType)
           .endControlFlow()
-          .addStatement("$L.$L=arr", localBean, fieldName)
+          .addStatement("$L.$L=arr", localBean, fieldElement)
           .endControlFlow()
           .build();
     } else {
