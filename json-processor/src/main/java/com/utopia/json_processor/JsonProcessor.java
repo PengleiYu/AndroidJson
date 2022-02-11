@@ -220,88 +220,19 @@ public class JsonProcessor extends AbstractProcessor {
       return null;
     }
 
-    if (!(fieldElement.asType() instanceof DeclaredType)) {
-      warning("map类型不是declaredType", fieldElement);
+    TypeName chosenSecondParamType = chooseMapSecondParamType(fieldElement);
+    if (chosenSecondParamType == null) {
+      // 已在内部处理提示，这里直接返回
       return null;
     }
-
-    List<? extends TypeMirror> typeArguments = ((DeclaredType) fieldElement.asType()).getTypeArguments();
-    if (typeArguments.size() > 0 && typeArguments.size() != 2) {
-      warning("map的泛型数量不正确", fieldElement);
-      return null;
-    }
-    // TODO: 2022/2/9 放开
-    if (typeArguments.size() == 0) {
-      warning("不支持无泛型map", fieldElement);
-      return null;
-    }
-//    boolean hasGeneric = !typeArguments.isEmpty();
-    note(typeArguments.stream()
-        .map(Object::getClass)
-        .collect(Collectors.toList()));
-    note(typeArguments.stream()
-        .map(TypeName::get)
-        .map(Object::getClass)
-        .collect(Collectors.toList()));
-
-    TypeName typeName0 = TypeName.get(typeArguments.get(0));
-    boolean isStringIndex0 = TypeNames.STRING.equals(typeName0);
-    if (!isStringIndex0) {
-      warning("map泛型第一个参数不是String类型", fieldElement);
-      return null;
-    }
-    TypeName typeName1 = TypeName.get(typeArguments.get(1));
-    TypeName chooseSecondParamType;
-    // 2.1 普通类
-    if (typeName1 instanceof ClassName) {
-      note("is className");
-      chooseSecondParamType = typeName1;
-    }
-    // 2.2 泛型
-    else if (typeName1 instanceof TypeVariableName) {
-      note(" is typeVar");
-      List<TypeName> bounds = ((TypeVariableName) typeName1).bounds;
-//      note("bounds=" + bounds);
-      if (bounds.isEmpty()) {
-        warning("map泛型第二个参数必须指明泛型上界", fieldElement);
-        return null;
-      }
-      if (bounds.size() > 1) {
-        warning("map泛型第二个参数仅支持一个上界", fieldElement);
-        return null;
-      }
-      chooseSecondParamType = bounds.get(0);
-    }
-    // 2.3 通配符
-    else if (typeName1 instanceof WildcardTypeName) {
-      List<TypeName> lowerBounds = ((WildcardTypeName) typeName1).lowerBounds;
-      List<TypeName> upperBounds = ((WildcardTypeName) typeName1).upperBounds;
-      if (!lowerBounds.isEmpty()) {
-        warning("map泛型第二个参数不支持泛型下界", fieldElement);
-        return null;
-      }
-      if (upperBounds.isEmpty()) {
-        warning("map泛型第二个参数没有明确指定上界", fieldElement);
-        return null;
-      }
-      if (upperBounds.size() > 1) {
-        warning("map泛型第二个参数不支持多个上界", fieldElement);
-        return null;
-      }
-      chooseSecondParamType = upperBounds.get(0);
-//      note("lowerBounds=" + lowerBounds + ",upperBounds=" + upperBounds);
-    } else {
-      warning("map泛型第二个参数是不支持的类型:" + typeName1, fieldElement);
-      return null;
-    }
-    note("chooseSecondParamType: " + chooseSecondParamType);
-    String optType = mJsonOptMap.get(chooseSecondParamType);
+    note("chooseSecondParamType: " + chosenSecondParamType);
+    String optType = mJsonOptMap.get(chosenSecondParamType);
     if (optType == null) {
-      warning("map泛型的第二个参数是不支持的类型:" + chooseSecondParamType, fieldElement);
+      warning("map泛型的第二个参数是不支持的类型:" + chosenSecondParamType, fieldElement);
       return null;
     }
-    TypeName chooseSecondParamCastType = chooseSecondParamType.isBoxedPrimitive()
-        ? chooseSecondParamType.unbox() : chooseSecondParamType;
+    TypeName chooseSecondParamCastType = chosenSecondParamType.isBoxedPrimitive()
+        ? chosenSecondParamType.unbox() : chosenSecondParamType;
 
     return CodeBlock.builder()
         .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
@@ -312,12 +243,80 @@ public class JsonProcessor extends AbstractProcessor {
         .beginControlFlow("while (keys.hasNext())")
         .addStatement("String next = keys.next()")
         .addStatement("$T value = ($T)jsonObj.opt$L(next)",
-            chooseSecondParamType, chooseSecondParamCastType, optType)
+            chosenSecondParamType, chooseSecondParamCastType, optType)
         .addStatement("map.put(next,value)")
         .addStatement("$L.$L = map", localBean, fieldElement)
         .endControlFlow()
         .endControlFlow()
         .build();
+  }
+
+  private TypeName chooseMapSecondParamType(VariableElement mapFieldElement) {
+    if (!(mapFieldElement.asType() instanceof DeclaredType)) {
+      warning("map类型不是declaredType", mapFieldElement);
+      return null;
+    }
+
+    List<? extends TypeMirror> typeArguments = ((DeclaredType) mapFieldElement.asType()).getTypeArguments();
+    if (typeArguments.size() > 0 && typeArguments.size() != 2) {
+      warning("map的泛型数量不正确", mapFieldElement);
+      return null;
+    }
+    if (typeArguments.size() == 0) {
+      note("无泛型map，视为String类型的key，Object类型的value");
+      return TypeNames.OBJECT;
+    }
+
+    TypeName typeName0 = TypeName.get(typeArguments.get(0));
+    boolean isStringIndex0 = TypeNames.STRING.equals(typeName0);
+    if (!isStringIndex0) {
+      warning("map泛型第一个参数不是String类型", mapFieldElement);
+      return null;
+    }
+    TypeName typeName1 = TypeName.get(typeArguments.get(1));
+    TypeName chooseSecondParamType;
+    // 2.1 普通类
+    if (typeName1 instanceof ClassName) {
+      note("map泛型第二个参数类型是className");
+      chooseSecondParamType = typeName1;
+    }
+    // 2.2 泛型
+    else if (typeName1 instanceof TypeVariableName) {
+      note(" map泛型第二个参数是typeVar");
+      List<TypeName> bounds = ((TypeVariableName) typeName1).bounds;
+//      note("bounds=" + bounds);
+      if (bounds.isEmpty()) {
+        warning("map泛型第二个参数必须指明泛型上界", mapFieldElement);
+        return null;
+      }
+      if (bounds.size() > 1) {
+        warning("map泛型第二个参数仅支持一个上界", mapFieldElement);
+        return null;
+      }
+      chooseSecondParamType = bounds.get(0);
+    }
+    // 2.3 通配符
+    else if (typeName1 instanceof WildcardTypeName) {
+      List<TypeName> lowerBounds = ((WildcardTypeName) typeName1).lowerBounds;
+      List<TypeName> upperBounds = ((WildcardTypeName) typeName1).upperBounds;
+      if (!lowerBounds.isEmpty()) {
+        warning("map泛型第二个参数不支持泛型下界", mapFieldElement);
+        return null;
+      }
+      if (upperBounds.isEmpty()) {
+        warning("map泛型第二个参数没有明确指定上界", mapFieldElement);
+        return null;
+      }
+      if (upperBounds.size() > 1) {
+        warning("map泛型第二个参数不支持多个上界", mapFieldElement);
+        return null;
+      }
+      chooseSecondParamType = upperBounds.get(0);
+    } else {
+      warning("map泛型第二个参数是不支持的类型:" + typeName1, mapFieldElement);
+      return null;
+    }
+    return chooseSecondParamType;
   }
 
   @Nullable
