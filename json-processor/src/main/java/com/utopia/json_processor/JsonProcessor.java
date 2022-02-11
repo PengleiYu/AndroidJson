@@ -213,7 +213,9 @@ public class JsonProcessor extends AbstractProcessor {
 
     note("processMap: " + fieldElement + ",type: " + fieldElement.asType());
     ClassName clzImpl;
-    if (mHelper.isAssignable(Constants.CLASS_HASH_MAP, fieldElement)) {
+    if (mHelper.isSameType(fieldElement, Constants.CLASS_HASH_MAP)) {
+      clzImpl = Constants.CLASS_HASH_MAP;
+    } else if (mHelper.isAssignable(Constants.CLASS_HASH_MAP, fieldElement)) {
       clzImpl = Constants.CLASS_HASH_MAP;
     } else {
       warning("不支持的map类型", fieldElement);
@@ -231,12 +233,18 @@ public class JsonProcessor extends AbstractProcessor {
       warning("map泛型的第二个参数是不支持的类型:" + chosenSecondParamType, fieldElement);
       return null;
     }
+
+    DeclaredType declaredType = mTypeUtils.getDeclaredType(
+        mElementUtils.getTypeElement(clzImpl.canonicalName()),
+        mElementUtils.getTypeElement(String.class.getCanonicalName()).asType(),
+        mElementUtils.getTypeElement(chosenSecondParamType.toString()).asType());
+
     TypeName chooseSecondParamCastType = chosenSecondParamType.isBoxedPrimitive()
         ? chosenSecondParamType.unbox() : chosenSecondParamType;
 
     return CodeBlock.builder()
         .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
-        .addStatement("$T map=new $T()", Map.class, clzImpl)
+        .addStatement("$T map=new $T()", declaredType, clzImpl)
         .addStatement("$T jsonObj=$L.$L($S)",
             Constants.CLZ_JSON_OBJECT, paramJson, Constants.FUNCTION_OPT_JSON_OBJECT, fieldElement)
         .addStatement("$T<String> keys = jsonObj.keys()", Iterator.class)

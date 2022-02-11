@@ -1,6 +1,7 @@
 package com.utopia.jsonapt;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -64,6 +65,10 @@ public class Bean<
 
   // 无泛型map
   public Map fMap;
+  // 明确类型的map
+  public Map<String, String> fMapStrStr;
+  public HashMap<String, String> fHashMapStrStr;
+  public HashMap<String, Float> fHashMapStrFloat;
 
   // 通配符泛型map
   public Map<String, ?> fMapString;
