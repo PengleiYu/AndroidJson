@@ -107,10 +107,12 @@ public class JsonProcessor extends AbstractProcessor {
     ClassName targetClz = getTargetJsonClzName(element);
     TypeSpec.Builder builder = TypeSpec.classBuilder(targetClz)
         .addModifiers(Modifier.PUBLIC);
+    // 2，添加装饰方法
+    MethodSpec methodDecoration = getDecorationMethod(ClassName.get(element));
+    builder.addMethod(methodDecoration);
     // 3，添加实现方法
     MethodSpec methodImpl = getImplMethod(ClassName.get(element), getVariables(element));
     builder.addMethod(methodImpl);
-    // 2，添加代理方法
     // 4，生成文件
     TypeSpec typeSpec = builder.build();
     try {
@@ -123,6 +125,27 @@ public class JsonProcessor extends AbstractProcessor {
       e.printStackTrace();
       error(e.getLocalizedMessage(), element);
     }
+  }
+
+  private MethodSpec getDecorationMethod(ClassName typeName) {
+    String paramKeyJson = Constants.METHOD_DECORATION_PARAM_KEY_JSON;
+
+    CodeBlock codeBlock = CodeBlock.builder()
+        .beginControlFlow("try")
+        .addStatement("return $L(new $T($L))",
+            Constants.METHOD_NAME_IMPL, Constants.CLZ_JSON_OBJECT, paramKeyJson)
+        .nextControlFlow("catch($T e)", Exception.class)
+        .addStatement("e.printStackTrace()")
+        .addStatement("return new $T()", typeName)
+        .endControlFlow()
+        .build();
+
+    return MethodSpec.methodBuilder(Constants.METHOD_NAME_DECORATION)
+        .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+        .addParameter(TypeName.get(String.class), paramKeyJson)
+        .returns(typeName)
+        .addCode(codeBlock)
+        .build();
   }
 
   private List<? extends VariableElement> getVariables(TypeElement element) {
@@ -147,9 +170,9 @@ public class JsonProcessor extends AbstractProcessor {
   }
 
   private MethodSpec getImplMethod(ClassName returnType, List<? extends VariableElement> variables) {
-    String methodName = Constants.METHOD_NAME_FROM_JSON;
-    String varBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
-    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    String methodName = Constants.METHOD_NAME_IMPL;
+    String varBean = Constants.METHOD_IMPL_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_IMPL_PARAM_KEY_JSON;
 
     ParameterSpec parameterSpec = ParameterSpec.builder(Constants.CLZ_JSON_OBJECT, paramJson)
         .build();
@@ -208,8 +231,8 @@ public class JsonProcessor extends AbstractProcessor {
 
   @Nullable
   private CodeBlock processMapField(VariableElement fieldElement) {
-    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
-    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    String localBean = Constants.METHOD_IMPL_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_IMPL_PARAM_KEY_JSON;
 
     note("processMap: " + fieldElement + ",type: " + fieldElement.asType());
     ClassName clzImpl;
@@ -329,8 +352,8 @@ public class JsonProcessor extends AbstractProcessor {
 
   @Nullable
   private CodeBlock processSimpleField(VariableElement fieldElement) {
-    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
-    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    String localBean = Constants.METHOD_IMPL_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_IMPL_PARAM_KEY_JSON;
 
     TypeName typeName = TypeName.get(fieldElement.asType());
 
@@ -352,8 +375,8 @@ public class JsonProcessor extends AbstractProcessor {
 
   @Nullable
   private CodeBlock processArrayField(VariableElement fieldElement) {
-    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
-    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    String localBean = Constants.METHOD_IMPL_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_IMPL_PARAM_KEY_JSON;
     TypeName typeName = TypeName.get(fieldElement.asType());
     if (!(typeName instanceof ArrayTypeName)) {
       warning("不是数组类型", fieldElement);
@@ -436,8 +459,8 @@ public class JsonProcessor extends AbstractProcessor {
     TypeName componentCastType = componentType.isBoxedPrimitive()
         ? componentType.unbox() : componentType;
 
-    String localBean = Constants.METHOD_FROM_JSON_LOCAL_VAR_BEAN;
-    String paramJson = Constants.METHOD_FROM_JSON_PARAM_KEY_JSON;
+    String localBean = Constants.METHOD_IMPL_LOCAL_VAR_BEAN;
+    String paramJson = Constants.METHOD_IMPL_PARAM_KEY_JSON;
 
     CodeBlock.Builder builder = CodeBlock.builder()
         .beginControlFlow("if($L.has($S))", paramJson, fieldElement)
