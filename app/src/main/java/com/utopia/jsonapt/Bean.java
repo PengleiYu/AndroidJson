@@ -1,5 +1,6 @@
 package com.utopia.jsonapt;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -52,6 +53,12 @@ public class Bean<
   public List<String> fListStr;
   public Set<Float> fSetFloat;
   public Queue<Character> fQueueChar;
+
+  // 通配符集合
+  public Collection<? extends Integer> fCollectionExtendInt;
+
+  // 指明子类型的集合
+  public ArrayList<Float> fArrayListFloat;
 
   // 不支持的嵌套泛型
   public Set<Bean> fSetBean;

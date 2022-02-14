@@ -413,7 +413,13 @@ public class JsonProcessor extends AbstractProcessor {
 
     if (!typeArguments.isEmpty()) {
       TypeName componentType = TypeName.get(typeArguments.get(0));
-      if (!mJsonOptMap.containsKey(componentType)) {
+      // TODO: 2022/2/11 处理泛型通配符
+      if (componentType instanceof WildcardTypeName) {
+        List<TypeName> upperBounds = ((WildcardTypeName) componentType).upperBounds;
+        List<TypeName> lowerBounds = ((WildcardTypeName) componentType).lowerBounds;
+        warning("暂不支持集合泛型通配符", fieldElement);
+        return null;
+      } else if (!mJsonOptMap.containsKey(componentType)) {
         warning("不支持的集合泛型", fieldElement);
         return null;
       }
